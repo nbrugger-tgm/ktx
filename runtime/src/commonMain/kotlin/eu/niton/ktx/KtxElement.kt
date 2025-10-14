@@ -8,5 +8,5 @@ sealed interface KtxElement {
     ) : KtxElement
     data class String(val string: kotlin.String) : KtxElement
     data class Function(val content: () -> KtxElement?) : KtxElement
-    data class List(val elements: kotlin.collections.List<KtxElement?>) : KtxElement
+    data class List(val elements: Collection<KtxElement?>) : KtxElement
 }
