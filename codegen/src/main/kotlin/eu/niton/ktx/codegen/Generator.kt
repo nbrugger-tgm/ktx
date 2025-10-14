@@ -122,13 +122,15 @@ private fun Generator.getTag(tag: TagInfo): TagFile {
     }
 }
 
+val attributeSorting = Comparator.comparing<AttributeInfo, Boolean> { it.required }.reversed().thenBy { it.name }
+
 // Generate the extension function for a tag that calls the new runtime API
 private fun Generator.generateTagFunction(tag: TagInfo, bodyType: Pair<TypeName, MemberName>?): FunSpec.Builder {
     val funBuilder = FunSpec.builder(tag.name)
     if (bodyType != null) funBuilder.addModifiers(KModifier.INLINE)
 
     // Use existing logic to add attribute parameters
-    tag.content.allAttributes.sortedByDescending { it.required }.forEach { attribute ->
+    tag.content.allAttributes.sortedWith(attributeSorting).forEach { attribute ->
         val attr = getAttributeParameter(attribute, tag)
         if (bodyType != null) attr.addModifiers(KModifier.NOINLINE)
         funBuilder.addParameter(attr.build())
@@ -162,9 +164,11 @@ private fun Generator.generateTagFunction(tag: TagInfo, bodyType: Pair<TypeName,
 private fun getEventListenerMap(tag: TagInfo): CodeBlock {
     val code = CodeBlock.builder()
     code.add("mapOf(\n")
-    tag.content.allAttributes.filter { it.type is AttributeType.EventHandler }.forEach { attribute ->
-        code.add("%S to %N,\n", attribute.name, attribute.name.humanize())
-    }
+    tag.content.allAttributes.sortedWith(attributeSorting)
+        .filter { it.type is AttributeType.EventHandler }
+        .forEach { attribute ->
+            code.add("%S to %N,\n", attribute.name, attribute.name.humanize())
+        }
     code.add(")")
     return code.build()
 }
@@ -172,9 +176,16 @@ private fun getEventListenerMap(tag: TagInfo): CodeBlock {
 private fun Generator.getAttributeMap(tag: TagInfo): CodeBlock {
     val code = CodeBlock.builder()
     code.add("mapOf(\n")
-    tag.content.allAttributes.filter { it.type !is AttributeType.EventHandler }.forEach { attribute ->
-        code.add("%S to %L,\n", attribute.name, getAttributeValueStringFn(attribute.type, attribute.name.humanize()))
-    }
+    tag.content.allAttributes
+        .sortedWith(attributeSorting)
+        .filter { it.type !is AttributeType.EventHandler }
+        .forEach { attribute ->
+            code.add(
+                "%S to %L,\n",
+                attribute.name,
+                getAttributeValueStringFn(attribute.type, attribute.name.humanize())
+            )
+        }
     code.add(")")
     return code.build()
 }
@@ -217,7 +228,8 @@ private fun Generator.getAttributeParameter(
     val param = ParameterSpec.builder(attribute.name.humanize(), paramType)
     if (attribute.required) return param
     val defaultValue = if (attribute.defaultValue != null) {
-        CodeBlock.of("{ %L }",
+        CodeBlock.of(
+            "{ %L }",
             getAttributeLiteral(attribute.name, qualifiedName, attribute.type, attribute.defaultValue)
         )
     } else CodeBlock.of("null")
@@ -240,6 +252,7 @@ private fun Generator.getAttributeLiteral(
             val enum = getAttributeEnum(attributeName, fullyQualifiedAttributeName, type)
             CodeBlock.of("%T.%N", enum.typeName(), value.enumEntryName())
         }
+
         AttributeType.EventHandler -> throw IllegalArgumentException("Event handler cannot have default value ($value)")
         is AttributeType.NamedBoolean -> CodeBlock.of("%S", value)
         AttributeType.Number -> CodeBlock.of("%L", value)
@@ -258,6 +271,7 @@ private fun Generator.getAttributeType(name: String, qualifiedName: String, type
             parameters = listOf(ParameterSpec.unnamed(STRING.copy(nullable = true))),
             returnType = UNIT
         )
+
         AttributeType.Number -> FLOAT
         AttributeType.String -> STRING
         AttributeType.URI -> URI::class.asClassName()
