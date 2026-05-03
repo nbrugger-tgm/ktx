@@ -34,7 +34,6 @@ kotlin {
                 compileOnly(project(":processor:annotations"))
                 // some kotlin multiplatform issues
                 api(project(":processor:annotations"))
-                api(project(":runtime"))
             }
         }
     }

@@ -1,5 +1,6 @@
 package eu.niton.ktx.processor
 
+import com.google.devtools.ksp.KSTypeNotPresentException
 import com.google.devtools.ksp.KspExperimental
 import com.google.devtools.ksp.getAnnotationsByType
 import com.google.devtools.ksp.processing.CodeGenerator
@@ -9,6 +10,7 @@ import com.google.devtools.ksp.processing.Resolver
 import com.google.devtools.ksp.processing.SymbolProcessor
 import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
 import com.google.devtools.ksp.symbol.KSAnnotated
+import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSFile
 import com.google.devtools.ksp.symbol.KSNode
 import com.google.devtools.ksp.visitor.KSEmptyVisitor
@@ -25,7 +27,16 @@ class Processor(private val env: SymbolProcessorEnvironment) : SymbolProcessor {
             if (node !is KSFile) return;
             val annotation = node.getAnnotationsByType(GenerateKtx::class).firstOrNull()
             if (annotation != null) {
-                Generator(node.packageName.asString(), KSPTarget(env.codeGenerator, node, env.logger)){
+                Generator(
+                    pkg = node.packageName.asString(),
+                    target = KSPTarget(env.codeGenerator, node, env.logger),
+                    eventType = try {
+                        annotation.eventType
+                        throw RuntimeException()
+                    } catch (e: KSTypeNotPresentException) {
+                        e.ksType.declaration as KSClassDeclaration
+                    },
+                ) {
                     parseXmlSchema(SCHEME_URL)
                 }.generate()
             }
