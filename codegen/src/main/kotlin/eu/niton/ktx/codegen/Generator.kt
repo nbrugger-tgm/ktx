@@ -1,18 +1,16 @@
 package eu.niton.ktx.processor
 
+import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.TypeSpec.Companion.anonymousClassBuilder
-import eu.niton.ktx.Content
-import eu.niton.ktx.KtxElement
-import eu.niton.ktx.RenderableContent
-import eu.niton.ktx.StringContent
 import eu.niton.ktx.codegen.GenerationTarget
 import java.net.URI
 
 data class Generator(
     val pkg: String,
     val target: GenerationTarget,
+    val eventType: KSClassDeclaration,
     val xsd: () -> XmlSchema
 ) {
     val xmlSchema = lazy { xsd() }
@@ -56,6 +54,47 @@ data class Generator(
                 }
             }
         }
+
+        target.writeFile("tag", "eu.niton.ktx") {
+            append(
+                """
+                package eu.niton.ktx
+                fun Content<*>.tag(
+                    name: String,
+                    attributes: Map<String, (() -> String?)?>,
+                    eventHandlers: Map<String, ((${eventType.qualifiedName?.asString()}) -> Unit)?>,
+                    body: KtxElement?
+                ) {
+                    +(KtxElement.Tag(name, body, attributes, eventHandlers))
+                }
+            """.trimIndent()
+            )
+        }
+        target.writeFile("KtxElement", "eu.niton.ktx") {
+            append(
+                """
+                package eu.niton.ktx
+                sealed interface KtxElement {
+                    data class Tag(
+                        val tag: kotlin.String,
+                        val body: KtxElement?,
+                        val attributes: Map<kotlin.String, (() -> kotlin.String?)?>,
+                        val eventListeners: Map<kotlin.String, ((${eventType.qualifiedName?.asString()}) -> Unit)?>
+                    ) : KtxElement
+                    data class String(val string: kotlin.String) : KtxElement
+                    data class Function(val content: () -> KtxElement?) : KtxElement
+                    data class List(val elements: Collection<KtxElement?>) : KtxElement
+                }
+            """.trimIndent()
+            )
+        }
+        listOf("Content", "RenderableContent", "StringContent").forEach {
+            target.writeFile(it, "eu.niton.ktx") {
+                append(java.lang.String(Generator::class.java.getResourceAsStream("/$it.kt")?.readAllBytes()?:throw RuntimeException(
+                    "Cannot read $it"
+                )))
+            }
+        }
     }
 }
 
@@ -70,13 +109,14 @@ private data class TagFile(
 
 private val tags = mutableMapOf<String, TagFile>()
 private val tagGroups = mutableMapOf<String, TagGroupFile>()
-private val tagGeneric = TypeVariableName("T", RenderableContent::class.asClassName())
-private val strContentClass = StringContent::class.asClassName()
-private val contentClass = Content::class.asClassName()
-private val renderable = RenderableContent::class.asClassName()
+private val tagGeneric = TypeVariableName("T", ClassName("eu.niton.ktx", "RenderableContent"))
+private val strContentClass = ClassName("eu.niton.ktx", "StringContent")
+private val contentClass = ClassName("eu.niton.ktx", "Content")
+private val renderable = ClassName("eu.niton.ktx", "RenderableContent")
 private val contentImpl = ClassName("eu.niton.ktx", "DefaultContent")
 private val renderFn = MemberName("eu.niton.ktx", "render")
 private val tagFn = MemberName("eu.niton.ktx", "tag")
+private val ktxElement = ClassName("eu.niton.ktx", "KtxElement")
 private fun TypeSpec.Builder.addSelfReferentialTypeVar(name: String): TypeSpec.Builder {
     return addTypeVariable(
         tagGeneric.copy(
@@ -268,7 +308,14 @@ private fun Generator.getAttributeType(name: String, qualifiedName: String, type
         is AttributeType.NamedBoolean -> BOOLEAN
         AttributeType.Toggle -> BOOLEAN
         AttributeType.EventHandler -> LambdaTypeName.get(
-            parameters = listOf(ParameterSpec.unnamed(STRING.copy(nullable = true))),
+            parameters = listOf(
+                ParameterSpec.unnamed(
+                    ClassName(
+                        eventType.packageName.asString(),
+                        eventType.simpleName.asString()
+                    )
+                )
+            ),
             returnType = UNIT
         )
 
@@ -404,7 +451,7 @@ private fun Generator.generateRenderFunction(
             )
         )
     )
-    .returns(KtxElement::class.asClassName().copy(nullable = true))
+    .returns(ktxElement.copy(nullable = true))
     .addStatement("return %M(%L,body)", renderFn, contentImpl.typeName().constructorReference())
     .build()
     .asFile(packageName ?: "tags.content", fileName ?: contentType.fileName)

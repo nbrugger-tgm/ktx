@@ -34,12 +34,3 @@ open class DefaultContent<out THIS>(private val ctor: () -> THIS) :
 inline fun <T : Content<I>, I : RenderableContent> render(parent: T, body: I.() -> Unit): KtxElement? {
     return render(parent::createSubContent, body)
 }
-
-fun Content<*>.tag(
-    name: String,
-    attributes: Map<String, (() -> String?)?>,
-    eventHandlers: Map<String, ((String?) -> Unit)?>,
-    body: KtxElement?
-) {
-    +(KtxElement.Tag(name, body, attributes, eventHandlers))
-}
